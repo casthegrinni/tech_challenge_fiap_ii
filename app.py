@@ -15,6 +15,7 @@ from src.engine.genetic_algorithm import (
     calculate_distance,
 )
 from src.ui.charts import plot_fitness_curve, plot_route_map, plot_folium_route, plot_altair_route
+from src.services.gemini_service import generate_route_explanation
 
 st.set_page_config(page_title="TSP Optimizer", layout="wide")
 
@@ -188,3 +189,47 @@ if st.button("🚀 Iniciar Otimização"):
     st.subheader("🗺️ Mapa Interativo de Entrega (Resultado Final)")
     fig_folium = plot_folium_route(cities_locations, final_routes, depot_location, city_map)
     folium_static(fig_folium, width=1000, height=500)
+
+    # 5.1 Briefing do Motorista (Gerado por IA)
+    st.subheader("🎙️ Briefing do Motorista (Gerado por IA)")
+    active_vehicles_data = []
+    for idx, route in enumerate(final_routes):
+        if len(route) > 2:
+            cargo = sum(city_map[p].demand for p in route[1:-1])
+            dist = 0.0
+            for k in range(len(route) - 1):
+                dist += calculate_distance(route[k], route[k+1])
+            
+            route_nodes = []
+            for pt in route:
+                if pt == depot_location:
+                    route_nodes.append({"nome": "Depósito Central", "prioridade": "N/A"})
+                else:
+                    city = city_map[pt]
+                    route_nodes.append({
+                        "nome": city.name,
+                        "demanda": f"{city.demand:.1f}kg",
+                        "prioridade": city.priority.name
+                    })
+            
+            active_vehicles_data.append({
+                "vehicle_obj": vehicles[idx],
+                "llm_input": {
+                    "veiculo": vehicles[idx].name,
+                    "total_entregas_kg": round(cargo, 1),
+                    "distancia_total_km": round(dist, 1),
+                    "rota": route_nodes
+                }
+            })
+            
+    if active_vehicles_data:
+        vehicle_names = [v["vehicle_obj"].name for v in active_vehicles_data]
+        tabs = st.tabs(vehicle_names)
+        for tab, v_data in zip(tabs, active_vehicles_data):
+            with tab:
+                st.write(f"📋 **Instruções de Rota para o {v_data['vehicle_obj'].name}:**")
+                with st.spinner("Carregando briefing..."):
+                    briefing = generate_route_explanation(v_data["llm_input"])
+                st.info(briefing)
+    else:
+        st.info("Nenhum veículo ativo para gerar o briefing do motorista.")
